@@ -1,0 +1,22 @@
+# Ignore deployment logs
+deployment-log-*.txt
+
+# Ignore publish output
+publish-output/
+
+# Ignore credential files
+*.xml
+*.cred
+*-credentials.json
+
+# Ignore environment-specific configs (if you create separate files)
+deploy-config.*.json
+!deploy-config.json
+
+# Ignore backup of config files
+*.bak
+*.backup
+
+# Ignore temp files
+*.tmp
+*.temp
