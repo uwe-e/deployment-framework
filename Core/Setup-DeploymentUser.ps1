@@ -257,12 +257,14 @@ try {
 
 	# Configure firewall
 	Write-Info "Checking firewall rules..."
-	$firewallRule = Get-NetFirewallRule -DisplayName "Windows Remote Management (HTTP-In)" -ErrorAction SilentlyContinue
+	# Use the language-independent Name property instead of DisplayName
+	# WINRM-HTTP-In-TCP is the system name for "Windows Remote Management (HTTP-In)"
+	$firewallRule = Get-NetFirewallRule -Name "WINRM-HTTP-In-TCP*" -ErrorAction SilentlyContinue | Select-Object -First 1
 	if ($firewallRule -and $firewallRule.Enabled -eq $true) {
 		Write-Success "WinRM firewall rule is enabled"
 	} else {
 		Write-Info "Enabling WinRM firewall rule..."
-		Enable-NetFirewallRule -DisplayName "Windows Remote Management (HTTP-In)"
+		Enable-NetFirewallRule -Name "WINRM-HTTP-In-TCP*"
 		Write-Success "WinRM firewall rule enabled"
 	}
 
