@@ -130,33 +130,43 @@ try {
 	}
 
 	if ($MinimumPermissions) {
-		# Add to Remote Management Users
-		Write-Info "Adding to Remote Management Users..."
-		try {
-			Add-LocalGroupMember -Group "Remote Management Users" -Member $DeploymentUser -ErrorAction Stop
-			Write-Success "Added to Remote Management Users"
-		}
-		catch {
-			if ($_.Exception.Message -like "*already a member*") {
-				Write-Warn "Already a member of Remote Management Users"
-			} else {
-				throw
+		# Helper function to add user to group using SID (language-independent)
+		function Add-UserToGroupBySid {
+			param(
+				[string]$GroupSid,
+				[string]$User,
+				[string]$GroupDescription
+			)
+
+			# Get group by SID (works regardless of Windows language)
+			try {
+				$group = Get-LocalGroup -SID $GroupSid -ErrorAction Stop
+				$groupName = $group.Name
+
+				Write-Info "Adding to $groupName ($GroupDescription)..."
+				try {
+					Add-LocalGroupMember -SID $GroupSid -Member $User -ErrorAction Stop
+					Write-Success "Added to $groupName"
+				}
+				catch {
+					if ($_.Exception.Message -like "*already a member*") {
+						Write-Warn "Already a member of $groupName"
+					} else {
+						throw
+					}
+				}
+			}
+			catch {
+				Write-Warn "Group $GroupDescription (SID: $GroupSid) does not exist on this system - skipping"
 			}
 		}
 
-		# Add to IIS_IUSRS
-		Write-Info "Adding to IIS_IUSRS..."
-		try {
-			Add-LocalGroupMember -Group "IIS_IUSRS" -Member $DeploymentUser -ErrorAction Stop
-			Write-Success "Added to IIS_IUSRS"
-		}
-		catch {
-			if ($_.Exception.Message -like "*already a member*") {
-				Write-Warn "Already a member of IIS_IUSRS"
-			} else {
-				throw
-			}
-		}
+		# Add to Remote Management Users (S-1-5-32-580)
+		# English: "Remote Management Users", German: "Remoteverwaltungsbenutzer"
+		Add-UserToGroupBySid -GroupSid "S-1-5-32-580" -User $DeploymentUser -GroupDescription "Remote Management Users"
+
+		# Add to IIS_IUSRS (S-1-5-32-568)
+		Add-UserToGroupBySid -GroupSid "S-1-5-32-568" -User $DeploymentUser -GroupDescription "IIS_IUSRS"
 	}
 
 	# Configure file system permissions
@@ -266,8 +276,26 @@ try {
 	}
 
 	if ($MinimumPermissions) {
-		Write-Host "  - Remote Management Users membership" -ForegroundColor White
-		Write-Host "  - IIS_IUSRS membership" -ForegroundColor White
+		$configuredGroups = @()
+
+		# Check which groups the user is actually a member of
+		if (Get-LocalGroup -Name "Remote Management Users" -ErrorAction SilentlyContinue) {
+			$members = Get-LocalGroupMember -Group "Remote Management Users" -ErrorAction SilentlyContinue
+			if ($members | Where-Object { $_.Name -like "*$username" }) {
+				$configuredGroups += "Remote Management Users"
+			}
+		}
+
+		if (Get-LocalGroup -Name "IIS_IUSRS" -ErrorAction SilentlyContinue) {
+			$members = Get-LocalGroupMember -Group "IIS_IUSRS" -ErrorAction SilentlyContinue
+			if ($members | Where-Object { $_.Name -like "*$username" }) {
+				$configuredGroups += "IIS_IUSRS"
+			}
+		}
+
+		foreach ($group in $configuredGroups) {
+			Write-Host "  - $group membership" -ForegroundColor White
+		}
 		Write-Host "  - PowerShell remoting access" -ForegroundColor White
 	}
 

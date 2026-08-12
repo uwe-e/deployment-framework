@@ -12,21 +12,21 @@ This framework provides a centralized, project-independent deployment solution t
 
 ```
 DeploymentScripts\
-├── Core\                           # Core deployment logic
-│   ├── Deploy-Application.ps1      # Main deployment engine
-│   ├── Setup-DeploymentUser.ps1    # Automated user setup
-│   └── DeploymentFunctions.ps1     # Shared utility functions
+├── Core\                             # Core deployment logic
+│   ├── Deploy-Application.ps1        # Main deployment engine
+│   ├── Setup-DeploymentUser.ps1      # Automated user setup
+│   └── DeploymentFunctions.ps1       # Shared utility functions
 │
-├── Docs\                           # Comprehensive documentation
-│   ├── README.md                   # Main documentation
-│   ├── SETUP-GUIDE.md              # Step-by-step setup guide
+├── Docs\                             # Comprehensive documentation
+│   ├── README.md                     # Main documentation
+│   ├── SETUP-GUIDE.md                # Step-by-step setup guide
 │   ├── DEPLOYMENT-USER-PRIVILEGES.md # Permission requirements
-│   └── QUICK-REFERENCE.md          # Command cheat sheet
+│   └── QUICK-REFERENCE.md            # Command cheat sheet
 │
-└── Templates\                      # Templates for new projects
-	├── deploy-config.template.json # Configuration template
-	├── Deploy.ps1                  # Launcher script template
-	└── README-PROJECT.md           # Project README template
+└── Templates\                        # Templates for new projects
+	├── deploy-config.template.json   # Configuration template
+	├── Deploy.ps1                    # Launcher script template
+	└── README-PROJECT.md             # Project README template
 ```
 
 ## Installation
@@ -38,7 +38,7 @@ Place the shared scripts in a common location accessible to all projects:
 ```
 C:\Git\ASP.Net\
 ├── DeploymentScripts\          # ← Shared scripts here
-├── BSE.Identity\               # Project 1
+├── OneProject\                 # Project 1
 │   └── deployment\
 │       ├── Deploy.ps1          # Launcher
 │       └── deploy-config.json  # Config
