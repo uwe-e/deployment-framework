@@ -73,7 +73,7 @@ The deployment user needs permissions to manage IIS app pools.
 Import-Module WebAdministration
 
 # Grant management permissions for specific app pool
-$appPoolName = "BSE.Identity"
+$appPoolName = "Your.AppPool.Name"
 $deployUser = "DOMAIN\deployuser"
 
 # Set permissions on the app pool
@@ -105,14 +105,14 @@ Set-Acl $appPoolPath $acl
 **Required Permissions**: Full Control
 
 **Directories**:
-- Deployment path (e.g., `C:\inetpub\wwwroot\BSE.Identity`)
-- Backup path (e.g., `C:\Backups\BSE.Identity`)
+- Deployment path (e.g., `C:\inetpub\wwwroot\Your.Web.Project`)
+- Backup path (e.g., `C:\Backups\Your.Web.Project`)
 
 **Grant permissions using PowerShell**:
 ```powershell
 # On the target server (as Administrator)
-$deploymentPath = "C:\inetpub\wwwroot\BSE.Identity"
-$backupPath = "C:\Backups\BSE.Identity"
+$deploymentPath = "C:\inetpub\wwwroot\Your.Web.Project"
+$backupPath = "C:\Backups\Your.Web.Project"
 $deployUser = "DOMAIN\deployuser"
 
 # Function to grant full control
@@ -275,7 +275,7 @@ Enable auditing for deployment activities:
 
 ```powershell
 # On the target server (as Administrator)
-$deploymentPath = "C:\inetpub\wwwroot\BSE.Identity"
+$deploymentPath = "C:\inetpub\wwwroot\Your.Web.Project"
 
 # Enable auditing on deployment directory
 $acl = Get-Acl $deploymentPath

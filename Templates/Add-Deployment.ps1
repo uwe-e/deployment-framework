@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 	Adds deployment configuration to a new project using the shared deployment framework.
 

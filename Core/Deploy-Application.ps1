@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 	Deploys BSE.Identity Blazor application to IIS server.
 
