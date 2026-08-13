@@ -2,4 +2,20 @@
 # This .gitignore file was automatically created by Microsoft(R) Visual Studio.
 ################################################################################
 
+# Visual Studio
 /.vs
+
+# Build and deployment outputs
+publish-output/
+**/publish-output/
+
+# Common .NET build outputs
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+.vs/
+
+# Deployment logs
+deploy-*.log

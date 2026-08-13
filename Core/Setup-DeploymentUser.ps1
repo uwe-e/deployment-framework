@@ -114,6 +114,9 @@ try {
 	# Add to groups
 	Write-Info "Configuring Windows groups..."
 
+	# Track if Remote Management Users group exists (needed later for PSSession config)
+	$remoteManagementGroupExists = $false
+
 	if ($GrantAdministrator) {
 		Write-Info "Adding to Administrators group..."
 		try {
@@ -163,10 +166,33 @@ try {
 
 		# Add to Remote Management Users (S-1-5-32-580)
 		# English: "Remote Management Users", German: "Remoteverwaltungsbenutzer"
-		Add-UserToGroupBySid -GroupSid "S-1-5-32-580" -User $DeploymentUser -GroupDescription "Remote Management Users"
+		# Note: This group does not exist on Domain Controllers
+		$remoteManagementGroupExists = $false
+		try {
+			$group = Get-LocalGroup -SID "S-1-5-32-580" -ErrorAction Stop
+			Add-UserToGroupBySid -GroupSid "S-1-5-32-580" -User $DeploymentUser -GroupDescription "Remote Management Users"
+			$remoteManagementGroupExists = $true
+		}
+		catch {
+			Write-Warn "Remote Management Users group does not exist - will configure PSSession permissions directly"
+		}
 
-		# Add to IIS_IUSRS (S-1-5-32-568)
-		Add-UserToGroupBySid -GroupSid "S-1-5-32-568" -User $DeploymentUser -GroupDescription "IIS_IUSRS"
+		# Add to IIS_IUSRS (by name, as it's not a built-in group with fixed SID)
+		# IIS_IUSRS is created by IIS and has a computer-specific SID, but the name is consistent across all languages
+		Write-Info "Adding to IIS_IUSRS..."
+		try {
+			Add-LocalGroupMember -Group "IIS_IUSRS" -Member $DeploymentUser -ErrorAction Stop
+			Write-Success "Added to IIS_IUSRS"
+		}
+		catch {
+			if ($_.Exception.Message -like "*already a member*") {
+				Write-Warn "Already a member of IIS_IUSRS"
+			} elseif ($_.Exception.Message -like "*cannot find*" -or $_.Exception.Message -like "*does not exist*") {
+				Write-Warn "IIS_IUSRS group does not exist - ensure IIS is installed"
+			} else {
+				throw
+			}
+		}
 	}
 
 	# Configure file system permissions
@@ -243,6 +269,47 @@ try {
 		Write-Success "PowerShell remoting enabled"
 	}
 
+	# Grant PSSession permissions if MinimumPermissions is set and Remote Management Users group doesn't exist
+	if ($MinimumPermissions -and -not $remoteManagementGroupExists) {
+		Write-Info "Granting PowerShell remoting permissions directly..."
+
+		try {
+			# Get the user's SID
+			$userAccount = New-Object System.Security.Principal.NTAccount($DeploymentUser)
+			$userSid = $userAccount.Translate([System.Security.Principal.SecurityIdentifier]).Value
+
+			# Get current SDDL for PSSessionConfiguration
+			$psSessionConfig = Get-PSSessionConfiguration -Name Microsoft.PowerShell
+			$currentSDDL = $psSessionConfig.SecurityDescriptorSddl
+
+			# Create SecurityDescriptor object from SDDL
+			$sd = New-Object System.Security.AccessControl.CommonSecurityDescriptor($false, $false, $currentSDDL)
+
+			# Add Execute(Invoke) permission for the user
+			# AccessMask: 268435456 (0x10000000) = Execute(Invoke) for PSSession
+			$accessMask = 268435456
+			$accessType = [System.Security.AccessControl.AccessControlType]::Allow
+
+			$sd.DiscretionaryAcl.AddAccess(
+				$accessType,
+				$userSid,
+				$accessMask,
+				[System.Security.AccessControl.InheritanceFlags]::None,
+				[System.Security.AccessControl.PropagationFlags]::None
+			)
+
+			# Convert back to SDDL and apply
+			$newSDDL = $sd.GetSddlForm([System.Security.AccessControl.AccessControlSections]::All)
+			Set-PSSessionConfiguration -Name Microsoft.PowerShell -SecurityDescriptorSddl $newSDDL -Force -NoServiceRestart
+
+			Write-Success "Granted PowerShell remoting permissions to $DeploymentUser"
+		}
+		catch {
+			Write-Warn "Could not automatically grant PSSession permissions: $_"
+			Write-Info "You may need to manually run: Set-PSSessionConfiguration -Name Microsoft.PowerShell -ShowSecurityDescriptorUI"
+		}
+	}
+
 	# Configure WinRM
 	Write-Info "Checking WinRM service..."
 	$winrm = Get-Service WinRM
@@ -281,24 +348,38 @@ try {
 		$configuredGroups = @()
 
 		# Check which groups the user is actually a member of
-		if (Get-LocalGroup -Name "Remote Management Users" -ErrorAction SilentlyContinue) {
-			$members = Get-LocalGroupMember -Group "Remote Management Users" -ErrorAction SilentlyContinue
+		# Check Remote Management Users (using SID for language independence)
+		try {
+			$group = Get-LocalGroup -SID "S-1-5-32-580" -ErrorAction Stop
+			$members = Get-LocalGroupMember -SID "S-1-5-32-580" -ErrorAction SilentlyContinue
 			if ($members | Where-Object { $_.Name -like "*$username" }) {
-				$configuredGroups += "Remote Management Users"
+				$configuredGroups += $group.Name
 			}
 		}
+		catch {
+			# Group doesn't exist - PSSession permissions were configured directly
+		}
 
-		if (Get-LocalGroup -Name "IIS_IUSRS" -ErrorAction SilentlyContinue) {
+		# Check IIS_IUSRS (by name, as it doesn't have a fixed well-known SID)
+		try {
 			$members = Get-LocalGroupMember -Group "IIS_IUSRS" -ErrorAction SilentlyContinue
 			if ($members | Where-Object { $_.Name -like "*$username" }) {
 				$configuredGroups += "IIS_IUSRS"
 			}
 		}
+		catch {
+			# Group doesn't exist or IIS not installed
+		}
 
 		foreach ($group in $configuredGroups) {
 			Write-Host "  - $group membership" -ForegroundColor White
 		}
-		Write-Host "  - PowerShell remoting access" -ForegroundColor White
+
+		if ($remoteManagementGroupExists) {
+			Write-Host "  - PowerShell remoting access (via group membership)" -ForegroundColor White
+		} else {
+			Write-Host "  - PowerShell remoting access (via direct PSSession permissions)" -ForegroundColor White
+		}
 	}
 
 	Write-Host "  - Full Control on: $DeploymentPath" -ForegroundColor White
