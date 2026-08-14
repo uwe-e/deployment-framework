@@ -180,7 +180,7 @@ try {
 				$errorMsg -like "*already exists*") {
 				Write-Warn "Already a member of $groupName"
 			} else {
-				Write-Warn "Could not add to $groupName: $errorMsg"
+				Write-Warn "Could not add to ${groupName}: $errorMsg"
 				if ($isDomainController) {
 					Write-Info "Try manually: Add-ADGroupMember -Identity '$SID_Administrators' -Members '$DeploymentUser'"
 				} else {
