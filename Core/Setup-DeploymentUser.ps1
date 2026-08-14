@@ -102,7 +102,7 @@ try {
 	$SID_RemoteManagement = "S-1-5-32-580"      # Remote Management Users / Remoteverwaltungsbenutzer
 
 	# Extract username (remove domain if present)
-	$username = if ($DeploymentUser -contains '\') {
+	$username = if ($DeploymentUser -like '*\*') {
 		$DeploymentUser.Split('\')[1]
 	} else {
 		$DeploymentUser
@@ -164,7 +164,9 @@ try {
 				Add-ADGroupMember -Identity $SID_Administrators -Members $DeploymentUser -ErrorAction Stop
 				Write-Success "Added to $groupName (Domain group)"
 			} else {
-				Add-LocalGroupMember -SID $SID_Administrators -Member $DeploymentUser -ErrorAction Stop
+				# For local groups, use just the username without domain prefix
+				$memberToAdd = if ($DeploymentUser -like '*\*') { $username } else { $DeploymentUser }
+				Add-LocalGroupMember -SID $SID_Administrators -Member $memberToAdd -ErrorAction Stop
 				Write-Success "Added to $groupName (Local group)"
 			}
 		}
@@ -177,7 +179,8 @@ try {
 				if ($isDomainController) {
 					Write-Info "Try manually: Add-ADGroupMember -Identity '$SID_Administrators' -Members '$DeploymentUser'"
 				} else {
-					Write-Info "Try manually: Add-LocalGroupMember -SID '$SID_Administrators' -Member '$DeploymentUser'"
+					$memberToAdd = if ($DeploymentUser -like '*\*') { $username } else { $DeploymentUser }
+					Write-Info "Try manually: Add-LocalGroupMember -SID '$SID_Administrators' -Member '$memberToAdd'"
 				}
 			}
 		}
@@ -199,7 +202,9 @@ try {
 
 				Write-Info "Adding to $groupName ($GroupDescription)..."
 				try {
-					Add-LocalGroupMember -SID $GroupSid -Member $User -ErrorAction Stop
+					# For local groups, use just the username without domain prefix
+					$memberToAdd = if ($User -like '*\*') { $User.Split('\')[1] } else { $User }
+					Add-LocalGroupMember -SID $GroupSid -Member $memberToAdd -ErrorAction Stop
 					Write-Success "Added to $groupName"
 				}
 				catch {
@@ -264,16 +269,13 @@ try {
 		if ($iisGroupFound) {
 			try {
 				if ($iisGroupType -eq "Local") {
-					Add-LocalGroupMember -Group "IIS_IUSRS" -Member $DeploymentUser -ErrorAction Stop
+					# For local groups, use just the username without domain prefix
+					$memberToAdd = if ($DeploymentUser -like '*\*') { $username } else { $DeploymentUser }
+					Add-LocalGroupMember -Group "IIS_IUSRS" -Member $memberToAdd -ErrorAction Stop
 				}
 				elseif ($iisGroupType -eq "Domain") {
-					# For domain groups, extract just the username (remove domain prefix if present)
-					$memberIdentity = if ($DeploymentUser -match '\\') {
-						$DeploymentUser
-					} else {
-						$DeploymentUser
-					}
-					Add-ADGroupMember -Identity "IIS_IUSRS" -Members $memberIdentity -ErrorAction Stop
+					# For domain groups, use the full DOMAIN\username format
+					Add-ADGroupMember -Identity "IIS_IUSRS" -Members $DeploymentUser -ErrorAction Stop
 				}
 				Write-Success "Added to IIS_IUSRS ($iisGroupType group)"
 			}
@@ -340,7 +342,9 @@ try {
 			try {
 				$wpgGroup = Get-LocalGroup -Name "IIS_WPG" -ErrorAction SilentlyContinue
 				if ($wpgGroup) {
-					Add-LocalGroupMember -Group "IIS_WPG" -Member $DeploymentUser -ErrorAction SilentlyContinue
+					# For local groups, use just the username without domain prefix
+					$memberToAdd = if ($DeploymentUser -like '*\*') { $username } else { $DeploymentUser }
+					Add-LocalGroupMember -Group "IIS_WPG" -Member $memberToAdd -ErrorAction SilentlyContinue
 					Write-Success "Added to IIS_WPG group"
 				}
 			}
