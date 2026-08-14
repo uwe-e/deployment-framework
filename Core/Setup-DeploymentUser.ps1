@@ -171,11 +171,12 @@ try {
 			}
 		}
 		catch {
-			if ($_.Exception.Message -like "*already a member*" -or 
-				$_.Exception.Message -like "*already exists*") {
+			$errorMsg = $_.Exception.Message
+			if ($errorMsg -like "*already a member*" -or 
+				$errorMsg -like "*already exists*") {
 				Write-Warn "Already a member of $groupName"
 			} else {
-				Write-Warn "Could not add to $groupName: $($_.Exception.Message)"
+				Write-Warn "Could not add to $groupName: $errorMsg"
 				if ($isDomainController) {
 					Write-Info "Try manually: Add-ADGroupMember -Identity '$SID_Administrators' -Members '$DeploymentUser'"
 				} else {
@@ -280,11 +281,12 @@ try {
 				Write-Success "Added to IIS_IUSRS ($iisGroupType group)"
 			}
 			catch {
-				if ($_.Exception.Message -like "*already a member*" -or 
-					$_.Exception.Message -like "*already exists*") {
+				$errorMsg = $_.Exception.Message
+				if ($errorMsg -like "*already a member*" -or 
+					$errorMsg -like "*already exists*") {
 					Write-Warn "Already a member of IIS_IUSRS"
 				} else {
-					Write-Warn "Could not add to IIS_IUSRS: $($_.Exception.Message)"
+					Write-Warn "Could not add to IIS_IUSRS: $errorMsg"
 					Write-Info "Note: IIS_IUSRS membership may be required for IIS application pool management"
 				}
 			}
