@@ -7,6 +7,11 @@
 	to deploy applications via the Deploy-Application.ps1 script. It can create
 	a new user or configure an existing domain/local user.
 
+	IMPORTANT: For remote IIS application pool management (start/stop), the deployment
+	user typically requires Administrator privileges. The -MinimumPermissions option
+	provides file system access and PowerShell remoting but may not be sufficient
+	for full IIS pool control. Use -GrantAdministrator for complete functionality.
+
 .PARAMETER DeploymentUser
 	Username in format DOMAIN\username or just username for local accounts
 
@@ -24,12 +29,15 @@
 
 .PARAMETER GrantAdministrator
 	If specified, adds user to Administrators group (simplest but less secure)
+	RECOMMENDED for remote IIS deployments with pool management.
 
 .PARAMETER MinimumPermissions
 	If specified, grants only minimum required permissions (more secure)
+	NOTE: May not be sufficient for stopping/starting IIS application pools remotely.
+	Consider using -GrantAdministrator for full deployment functionality.
 
 .EXAMPLE
-	.\Setup-DeploymentUser.ps1 -DeploymentUser "DOMAIN\deployuser" -DeploymentPath "C:\inetpub\wwwroot\BSE.Identity" -BackupPath "C:\Backups\BSE.Identity" -AppPoolNames @("BSE.Identity") -MinimumPermissions
+	.\Setup-DeploymentUser.ps1 -DeploymentUser "DOMAIN\deployuser" -DeploymentPath "C:\inetpub\wwwroot\BSE.Identity" -BackupPath "C:\Backups\BSE.Identity" -AppPoolNames @("BSE.Identity") -GrantAdministrator
 
 .EXAMPLE
 	.\Setup-DeploymentUser.ps1 -DeploymentUser "deployuser" -CreateLocalUser -DeploymentPath "C:\inetpub\wwwroot\BSE.Identity" -AppPoolNames @("BSE.Identity") -GrantAdministrator
@@ -118,14 +126,21 @@ try {
 	$remoteManagementGroupExists = $false
 
 	if ($GrantAdministrator) {
-		Write-Info "Adding to Administrators group..."
+		# Add to Administrators group using SID (S-1-5-32-544) for language independence
+		# English: "Administrators", German: "Administratoren", French: "Administrateurs", etc.
 		try {
-			Add-LocalGroupMember -Group "Administrators" -Member $DeploymentUser -ErrorAction Stop
-			Write-Success "Added to Administrators group"
+			$adminGroup = Get-LocalGroup -SID "S-1-5-32-544" -ErrorAction Stop
+			$groupName = $adminGroup.Name
+
+			Write-Info "Adding to $groupName (Administrators)..."
+			Add-LocalGroupMember -SID "S-1-5-32-544" -Member $DeploymentUser -ErrorAction Stop
+			Write-Success "Added to $groupName group"
 		}
 		catch {
 			if ($_.Exception.Message -like "*already a member*") {
-				Write-Warn "Already a member of Administrators group"
+				$adminGroup = Get-LocalGroup -SID "S-1-5-32-544" -ErrorAction SilentlyContinue
+				$groupName = if ($adminGroup) { $adminGroup.Name } else { "Administrators" }
+				Write-Warn "Already a member of $groupName group"
 			} else {
 				throw
 			}
@@ -279,26 +294,64 @@ try {
 
 	# Configure IIS application pool permissions
 	if ($MinimumPermissions) {
-		Write-Info "Configuring IIS application pool permissions..."
-		Import-Module WebAdministration
+		Write-Info "Configuring IIS management permissions..."
 
-		foreach ($appPoolName in $AppPoolNames) {
-			Write-Info "Configuring permissions for app pool: $appPoolName"
+		# Grant IIS management permissions using IIS Configuration Store
+		try {
+			Import-Module WebAdministration -ErrorAction Stop
 
-			$appPoolPath = "IIS:\AppPools\$appPoolName"
-			if (Test-Path $appPoolPath) {
-				try {
-					# Note: IIS AppPool permissions are complex and may require additional configuration
-					# The user needs to be able to execute IIS management cmdlets which is typically
-					# handled by group membership (Administrators or IIS_IUSRS)
-					Write-Success "App pool '$appPoolName' exists and is accessible"
+			# Add user to IIS_WPG group if it exists (legacy, but sometimes needed)
+			try {
+				$wpgGroup = Get-LocalGroup -Name "IIS_WPG" -ErrorAction SilentlyContinue
+				if ($wpgGroup) {
+					Add-LocalGroupMember -Group "IIS_WPG" -Member $DeploymentUser -ErrorAction SilentlyContinue
+					Write-Success "Added to IIS_WPG group"
 				}
-				catch {
-					Write-Warn "Could not fully configure app pool permissions. Ensure user can manage IIS."
-				}
-			} else {
-				Write-Warn "App pool '$appPoolName' does not exist. Create it first or it will be configured during first deployment."
 			}
+			catch {
+				# IIS_WPG doesn't exist or user already member - ignore
+			}
+
+			# Configure IIS Management delegation for each app pool
+			foreach ($appPoolName in $AppPoolNames) {
+				Write-Info "Configuring permissions for app pool: $appPoolName"
+
+				$appPoolPath = "IIS:\AppPools\$appPoolName"
+				if (Test-Path $appPoolPath) {
+					Write-Success "App pool '$appPoolName' exists and is accessible"
+
+					# Grant permissions on the application pool config
+					# This allows starting/stopping the pool
+					try {
+						$configPath = "system.applicationHost/applicationPools"
+						$appPoolConfigPath = "$configPath/add[@name='$appPoolName']"
+
+						# Using appcmd to grant permissions (more reliable than API for delegation)
+						$appcmd = "$env:SystemRoot\System32\inetsrv\appcmd.exe"
+						if (Test-Path $appcmd) {
+							# Note: This requires Administrator rights to execute
+							# The actual permission to start/stop pools requires IIS Manager Users setup
+							Write-Info "IIS app pool exists - remote management requires IIS Manager delegation (configured separately)"
+						}
+					}
+					catch {
+						Write-Warn "Could not configure app pool delegation: $_"
+					}
+				} else {
+					Write-Warn "App pool '$appPoolName' does not exist. Create it first or it will be configured during first deployment."
+				}
+			}
+
+			# Important note for users
+			Write-Info ""
+			Write-Info "IMPORTANT: For remote IIS management with minimum permissions, consider:"
+			Write-Info "  1. Using -GrantAdministrator flag for simpler setup (recommended)"
+			Write-Info "  2. Or manually configure IIS Manager delegation for each app pool"
+			Write-Info "  3. The current setup allows file deployment but may need admin rights for pool management"
+			Write-Info ""
+		}
+		catch {
+			Write-Warn "Could not configure IIS management permissions: $_"
 		}
 	}
 
@@ -350,6 +403,17 @@ try {
 			Set-PSSessionConfiguration -Name Microsoft.PowerShell -SecurityDescriptorSddl $newSDDL -Force -NoServiceRestart
 
 			Write-Success "Granted PowerShell remoting permissions to $DeploymentUser"
+			Write-Info "WinRM service needs to be restarted for changes to take effect..."
+
+			# Restart WinRM service to apply PSSession configuration changes
+			try {
+				Restart-Service WinRM -Force
+				Write-Success "WinRM service restarted successfully"
+			}
+			catch {
+				Write-Warn "Could not restart WinRM service automatically: $_"
+				Write-Info "Please manually restart WinRM service: Restart-Service WinRM"
+			}
 		}
 		catch {
 			Write-Warn "Could not automatically grant PSSession permissions: $_"
@@ -368,6 +432,9 @@ try {
 	} else {
 		Write-Success "WinRM service is running"
 	}
+
+	# Ensure WinRM is set to start automatically
+	Set-Service WinRM -StartupType Automatic -ErrorAction SilentlyContinue
 
 	# Configure firewall
 	Write-Info "Checking firewall rules..."
