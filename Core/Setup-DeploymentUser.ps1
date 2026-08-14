@@ -97,6 +97,10 @@ try {
 	Write-Host "Deployment User: $DeploymentUser" -ForegroundColor White
 	Write-Host ""
 
+	# Well-known SIDs (language-independent)
+	$SID_Administrators = "S-1-5-32-544"        # Administrators / Administratoren
+	$SID_RemoteManagement = "S-1-5-32-580"      # Remote Management Users / Remoteverwaltungsbenutzer
+
 	# Extract username (remove domain if present)
 	$username = if ($DeploymentUser -contains '\') {
 		$DeploymentUser.Split('\')[1]
@@ -126,23 +130,55 @@ try {
 	$remoteManagementGroupExists = $false
 
 	if ($GrantAdministrator) {
-		# Add to Administrators group using SID (S-1-5-32-544) for language independence
-		# English: "Administrators", German: "Administratoren", French: "Administrateurs", etc.
-		try {
-			$adminGroup = Get-LocalGroup -SID "S-1-5-32-544" -ErrorAction Stop
-			$groupName = $adminGroup.Name
+		# Add to Administrators group
+		# Works on both Domain Controllers and Member Servers, in any language
 
-			Write-Info "Adding to $groupName (Administrators)..."
-			Add-LocalGroupMember -SID "S-1-5-32-544" -Member $DeploymentUser -ErrorAction Stop
-			Write-Success "Added to $groupName group"
+		# Check if we're on a Domain Controller
+		$isDomainController = $false
+		try {
+			$dcRole = Get-WmiObject -Class Win32_ComputerSystem | Select-Object -ExpandProperty DomainRole
+			$isDomainController = ($dcRole -eq 4 -or $dcRole -eq 5)  # 4 = Backup DC, 5 = Primary DC
 		}
 		catch {
-			if ($_.Exception.Message -like "*already a member*") {
-				$adminGroup = Get-LocalGroup -SID "S-1-5-32-544" -ErrorAction SilentlyContinue
-				$groupName = if ($adminGroup) { $adminGroup.Name } else { "Administrators" }
-				Write-Warn "Already a member of $groupName group"
+			# Assume not a DC if check fails
+		}
+
+		# Get localized group name
+		$groupName = "Administrators"
+		try {
+			if ($isDomainController) {
+				$adminGroup = Get-ADGroup -Identity $SID_Administrators -ErrorAction Stop
 			} else {
-				throw
+				$adminGroup = Get-LocalGroup -SID $SID_Administrators -ErrorAction Stop
+			}
+			$groupName = $adminGroup.Name
+		}
+		catch {
+			# Keep default name if lookup fails
+		}
+
+		Write-Info "Adding to $groupName..."
+
+		try {
+			if ($isDomainController) {
+				Add-ADGroupMember -Identity $SID_Administrators -Members $DeploymentUser -ErrorAction Stop
+				Write-Success "Added to $groupName (Domain group)"
+			} else {
+				Add-LocalGroupMember -SID $SID_Administrators -Member $DeploymentUser -ErrorAction Stop
+				Write-Success "Added to $groupName (Local group)"
+			}
+		}
+		catch {
+			if ($_.Exception.Message -like "*already a member*" -or 
+				$_.Exception.Message -like "*already exists*") {
+				Write-Warn "Already a member of $groupName"
+			} else {
+				Write-Warn "Could not add to $groupName: $($_.Exception.Message)"
+				if ($isDomainController) {
+					Write-Info "Try manually: Add-ADGroupMember -Identity '$SID_Administrators' -Members '$DeploymentUser'"
+				} else {
+					Write-Info "Try manually: Add-LocalGroupMember -SID '$SID_Administrators' -Member '$DeploymentUser'"
+				}
 			}
 		}
 	}
@@ -179,13 +215,13 @@ try {
 			}
 		}
 
-		# Add to Remote Management Users (S-1-5-32-580)
+		# Add to Remote Management Users
 		# English: "Remote Management Users", German: "Remoteverwaltungsbenutzer"
 		# Note: This group does not exist on Domain Controllers
 		$remoteManagementGroupExists = $false
 		try {
-			$group = Get-LocalGroup -SID "S-1-5-32-580" -ErrorAction Stop
-			Add-UserToGroupBySid -GroupSid "S-1-5-32-580" -User $DeploymentUser -GroupDescription "Remote Management Users"
+			$group = Get-LocalGroup -SID $SID_RemoteManagement -ErrorAction Stop
+			Add-UserToGroupBySid -GroupSid $SID_RemoteManagement -User $DeploymentUser -GroupDescription "Remote Management Users"
 			$remoteManagementGroupExists = $true
 		}
 		catch {
@@ -464,8 +500,8 @@ try {
 		# Check which groups the user is actually a member of
 		# Check Remote Management Users (using SID for language independence)
 		try {
-			$group = Get-LocalGroup -SID "S-1-5-32-580" -ErrorAction Stop
-			$members = Get-LocalGroupMember -SID "S-1-5-32-580" -ErrorAction SilentlyContinue
+			$group = Get-LocalGroup -SID $SID_RemoteManagement -ErrorAction Stop
+			$members = Get-LocalGroupMember -SID $SID_RemoteManagement -ErrorAction SilentlyContinue
 			if ($members | Where-Object { $_.Name -like "*$username" }) {
 				$configuredGroups += $group.Name
 			}
