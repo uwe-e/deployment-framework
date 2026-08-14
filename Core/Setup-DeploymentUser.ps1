@@ -179,19 +179,66 @@ try {
 
 		# Add to IIS_IUSRS (by name, as it's not a built-in group with fixed SID)
 		# IIS_IUSRS is created by IIS and has a computer-specific SID, but the name is consistent across all languages
+		# On Domain Controllers, this might be a domain group instead of a local group
 		Write-Info "Adding to IIS_IUSRS..."
+
+		$iisGroupFound = $false
+		$iisGroupType = $null
+
+		# First, try to find it as a local group
 		try {
-			Add-LocalGroupMember -Group "IIS_IUSRS" -Member $DeploymentUser -ErrorAction Stop
-			Write-Success "Added to IIS_IUSRS"
+			$localGroup = Get-LocalGroup -Name "IIS_IUSRS" -ErrorAction Stop
+			$iisGroupFound = $true
+			$iisGroupType = "Local"
 		}
 		catch {
-			if ($_.Exception.Message -like "*already a member*") {
-				Write-Warn "Already a member of IIS_IUSRS"
-			} elseif ($_.Exception.Message -like "*cannot find*" -or $_.Exception.Message -like "*does not exist*") {
-				Write-Warn "IIS_IUSRS group does not exist - ensure IIS is installed"
-			} else {
-				throw
+			# Not a local group, might be a domain group
+		}
+
+		# If not found as local group, try as domain group (on Domain Controllers)
+		if (-not $iisGroupFound) {
+			try {
+				$adGroup = Get-ADGroup -Filter "Name -eq 'IIS_IUSRS'" -ErrorAction Stop
+				if ($adGroup) {
+					$iisGroupFound = $true
+					$iisGroupType = "Domain"
+				}
 			}
+			catch {
+				# AD module might not be available or group doesn't exist
+			}
+		}
+
+		# Now add the user to the appropriate group
+		if ($iisGroupFound) {
+			try {
+				if ($iisGroupType -eq "Local") {
+					Add-LocalGroupMember -Group "IIS_IUSRS" -Member $DeploymentUser -ErrorAction Stop
+				}
+				elseif ($iisGroupType -eq "Domain") {
+					# For domain groups, extract just the username (remove domain prefix if present)
+					$memberIdentity = if ($DeploymentUser -match '\\') {
+						$DeploymentUser
+					} else {
+						$DeploymentUser
+					}
+					Add-ADGroupMember -Identity "IIS_IUSRS" -Members $memberIdentity -ErrorAction Stop
+				}
+				Write-Success "Added to IIS_IUSRS ($iisGroupType group)"
+			}
+			catch {
+				if ($_.Exception.Message -like "*already a member*" -or 
+					$_.Exception.Message -like "*already exists*") {
+					Write-Warn "Already a member of IIS_IUSRS"
+				} else {
+					Write-Warn "Could not add to IIS_IUSRS: $($_.Exception.Message)"
+					Write-Info "Note: IIS_IUSRS membership may be required for IIS application pool management"
+				}
+			}
+		}
+		else {
+			Write-Warn "IIS_IUSRS group not found (neither as local nor domain group)"
+			Write-Info "Note: IIS_IUSRS membership may be required for IIS application pool management"
 		}
 	}
 
