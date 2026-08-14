@@ -161,12 +161,16 @@ try {
 
 		try {
 			if ($isDomainController) {
-				Add-ADGroupMember -Identity $SID_Administrators -Members $DeploymentUser -ErrorAction Stop
+				
+				$SamAccountName = $DeploymentUser -split '[\/]' | Select-Object -Last 1
+
+				Add-ADGroupMember -Identity $SID_Administrators -Members $SamAccountName -ErrorAction Stop
 				Write-Success "Added to $groupName (Domain group)"
 			} else {
 				# For local groups, use just the username without domain prefix
-				$memberToAdd = if ($DeploymentUser -like '*\*') { $username } else { $DeploymentUser }
-				Add-LocalGroupMember -SID $SID_Administrators -Member $memberToAdd -ErrorAction Stop
+				$LocalUserFormat = $DeploymentUser -replace '/', '\'
+				
+				Add-LocalGroupMember -SID $SID_Administrators -Member $LocalUserFormat -ErrorAction Stop
 				Write-Success "Added to $groupName (Local group)"
 			}
 		}
